@@ -1,0 +1,96 @@
+/* stylelint-disable */
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/* Definition of the design system. All colors, gradients, fonts, etc should be defined here.
+All colors MUST be HSL.
+*/
+
+@layer base {
+  :root {
+    --radius: 0.125rem;
+    --background: 216 33% 97%;
+    --foreground: 211 61% 10%;
+    --card: 0 0% 100%;
+    --card-foreground: 211 61% 10%;
+    --popover: 0 0% 100%;
+    --popover-foreground: 211 61% 10%;
+    --primary: 204 77% 26%;
+    --primary-foreground: 0 0% 100%;
+    --secondary: 213 33% 93%;
+    --secondary-foreground: 211 61% 10%;
+    --muted: 213 33% 93%;
+    --muted-foreground: 215.4 16.3% 46.9%;
+    --accent: 185 81% 29%;
+    --accent-foreground: 0 0% 100%;
+    --destructive: 0 84.2% 60.2%;
+    --destructive-foreground: 210 40% 98%;
+    --border: 215 25% 85%;
+    --input: 215 25% 85%;
+    --ring: 204 77% 26%;
+    --chart-1: 204 77% 26%;
+    --chart-2: 185 81% 29%;
+    --chart-3: 197 37% 24%;
+    --chart-4: 43 74% 66%;
+    --chart-5: 27 87% 67%;
+    --sidebar-background: 216 33% 97%;
+    --sidebar-foreground: 211 61% 10%;
+    --sidebar-primary: 204 77% 26%;
+    --sidebar-primary-foreground: 0 0% 100%;
+    --sidebar-accent: 213 33% 93%;
+    --sidebar-accent-foreground: 211 61% 10%;
+    --sidebar-border: 215 25% 85%;
+    --sidebar-ring: 204 77% 26%;
+  }
+
+  .dark {
+    --background: 211 61% 10%;
+    --foreground: 216 33% 97%;
+    --card: 211 61% 12%;
+    --card-foreground: 216 33% 97%;
+    --popover: 211 61% 12%;
+    --popover-foreground: 216 33% 97%;
+    --primary: 204 77% 46%;
+    --primary-foreground: 0 0% 100%;
+    --secondary: 217.2 32.6% 17.5%;
+    --secondary-foreground: 216 33% 97%;
+    --muted: 217.2 32.6% 17.5%;
+    --muted-foreground: 215 20.2% 65.1%;
+    --accent: 185 81% 40%;
+    --accent-foreground: 0 0% 100%;
+    --destructive: 0 62.8% 40.6%;
+    --destructive-foreground: 0 0% 100%;
+    --border: 217.2 32.6% 17.5%;
+    --input: 217.2 32.6% 17.5%;
+    --ring: 204 77% 46%;
+    --chart-1: 204 77% 46%;
+    --chart-2: 185 81% 40%;
+    --chart-3: 30 80% 55%;
+    --chart-4: 280 65% 60%;
+    --chart-5: 340 75% 55%;
+    --sidebar-background: 211 61% 12%;
+    --sidebar-foreground: 216 33% 97%;
+    --sidebar-primary: 204 77% 46%;
+    --sidebar-primary-foreground: 0 0% 100%;
+    --sidebar-accent: 217.2 32.6% 17.5%;
+    --sidebar-accent-foreground: 216 33% 97%;
+    --sidebar-border: 217.2 32.6% 17.5%;
+    --sidebar-ring: 204 77% 46%;
+  }
+}
+
+@layer base {
+  * {
+    @apply border-border;
+  }
+
+  body {
+    @apply bg-background text-foreground font-sans text-right;
+    direction: rtl;
+  }
+  
+  h1, h2, h3, h4, h5, h6 {
+    @apply font-heading;
+  }
+}
