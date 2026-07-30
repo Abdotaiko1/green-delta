@@ -3,7 +3,7 @@ import { Navigate, useLocation } from 'react-router-dom';
 import { useAuth } from '@/contexts/AuthContext';
 
 export const RouteGuard: React.FC<{ children: React.ReactNode }> = ({ children }) => {
-  const { session, role, can, loading } = useAuth();
+  const { session, role, isOwner, can, loading } = useAuth();
   const location = useLocation();
 
   if (loading) {
@@ -35,7 +35,7 @@ export const RouteGuard: React.FC<{ children: React.ReactNode }> = ({ children }
   }
 
   const path = location.pathname;
-  if (path === '/permissions' && role !== 'manager') return <Navigate to="/" replace />;
+  if (path === '/permissions' && !isOwner) return <Navigate to="/" replace />;
 
   const resource = path === '/' ? 'dashboard'
     : path.startsWith('/buildings') ? 'buildings'

@@ -9,11 +9,13 @@ export type PermissionMap = Record<string, Record<PermissionAction, boolean>>;
 const BYPASS_AUTH = import.meta.env.VITE_BYPASS_AUTH === 'true';
 const DEV_SESSION_KEY = 'dev_auth_bypass';
 const LOGIN_SESSION_KEY = 'active_login_session_id';
+const OWNER_EMAIL = 'greendelta@admin.com';
 
 interface AuthContextType {
   session: Session | null;
   user: User | null;
   role: AppRole | null;
+  isOwner: boolean;
   permissions: PermissionMap;
   can: (resource: string, action?: PermissionAction) => boolean;
   refreshPermissions: () => Promise<void>;
@@ -26,6 +28,7 @@ const AuthContext = createContext<AuthContextType>({
   session: null,
   user: null,
   role: null,
+  isOwner: false,
   permissions: {},
   can: () => false,
   refreshPermissions: async () => {},
@@ -37,7 +40,7 @@ const AuthContext = createContext<AuthContextType>({
 const createDevSession = (): { session: Session; user: User } => {
   const user = {
     id: '00000000-0000-0000-0000-000000000001',
-    email: 'admin@greendelta.com',
+    email: OWNER_EMAIL,
     app_metadata: {},
     user_metadata: { full_name: 'مدير النظام (Admin)' },
     aud: 'authenticated',
@@ -61,6 +64,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   const [role, setRole] = useState<AppRole | null>(null);
   const [permissions, setPermissions] = useState<PermissionMap>({});
   const [loading, setLoading] = useState(true);
+  const isOwner = user?.email?.toLowerCase() === OWNER_EMAIL;
 
   const applyDevSession = () => {
     const { session: devSession, user: devUser } = createDevSession();
@@ -123,8 +127,16 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     return () => subscription.unsubscribe();
   }, []);
 
-  const fetchPermissions = async (targetRole: AppRole) => {
-    const { data, error } = await supabase
+  const fetchPermissions = async (targetUserId: string, targetRole: AppRole) => {
+    const userPermissionsResult = await supabase
+      .from('user_permissions')
+      .select('resource, can_view, can_create, can_update, can_delete')
+      .eq('user_id', targetUserId);
+
+    const customRows = userPermissionsResult.error ? [] : (userPermissionsResult.data || []);
+    const { data, error } = customRows.length > 0
+      ? { data: customRows, error: null }
+      : await supabase
       .from('role_permissions')
       .select('resource, can_view, can_create, can_update, can_delete')
       .eq('role', targetRole);
@@ -157,7 +169,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       if (!rpcError && ['manager', 'technician', 'accountant'].includes(rpcRole as string)) {
         const nextRole = rpcRole as AppRole;
         setRole(nextRole);
-        await fetchPermissions(nextRole);
+        await fetchPermissions(userId, nextRole);
         return;
       }
 
@@ -166,7 +178,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       if (!repairError && ['manager', 'technician', 'accountant'].includes(repairedRole as string)) {
         const nextRole = repairedRole as AppRole;
         setRole(nextRole);
-        await fetchPermissions(nextRole);
+        await fetchPermissions(userId, nextRole);
         return;
       }
 
@@ -180,7 +192,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       if (!data?.role) throw new Error('لا يوجد دور مرتبط بهذا المستخدم');
       const nextRole = data.role as AppRole;
       setRole(nextRole);
-      await fetchPermissions(nextRole);
+      await fetchPermissions(userId, nextRole);
     } catch (error) {
       const details = error && typeof error === 'object'
         ? JSON.stringify(error)
@@ -193,7 +205,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   };
 
   const refreshPermissions = async () => {
-    if (role) await fetchPermissions(role);
+    if (role && user) await fetchPermissions(user.id, role);
   };
 
   const legacyCan = (resource: string, action: PermissionAction) => {
@@ -209,7 +221,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   };
 
   const can = (resource: string, action: PermissionAction = 'view') =>
-    permissions[resource]?.[action] ?? legacyCan(resource, action);
+    isOwner || (permissions[resource]?.[action] ?? legacyCan(resource, action));
 
   const signOut = async () => {
     localStorage.removeItem(DEV_SESSION_KEY);
@@ -233,7 +245,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   };
 
   return (
-    <AuthContext.Provider value={{ session, user, role, permissions, can, refreshPermissions, loading, signOut, devSignIn }}>
+    <AuthContext.Provider value={{ session, user, role, isOwner, permissions, can, refreshPermissions, loading, signOut, devSignIn }}>
       {children}
     </AuthContext.Provider>
   );

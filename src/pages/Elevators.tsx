@@ -5,9 +5,8 @@ import { Input } from '@/components/ui/input';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '@/components/ui/dialog';
 import { Label } from '@/components/ui/label';
-import { Plus, Search, Edit, Trash2, MapPin } from 'lucide-react';
+import { Plus, Search, Edit, Archive, RotateCcw, MapPin } from 'lucide-react';
 import { toast } from 'sonner';
-import { deleteRow } from '@/lib/database';
 import { useNavigate } from 'react-router-dom';
 import BuildingCombobox from '@/components/BuildingCombobox';
 import { useAuth } from '@/contexts/AuthContext';
@@ -43,6 +42,7 @@ type Elevator = {
   status: string;
   notes: string | null;
   elevator_name: string | null;
+  archived_at: string | null;
   buildings?: { name: string; address: string };
   maintenance_lines?: { name: string };
 };
@@ -57,6 +57,7 @@ const Elevators: React.FC = () => {
   const [maintenanceLines, setMaintenanceLines] = useState<{ id: string; name: string }[]>([]);
   const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState('');
+  const [showArchived, setShowArchived] = useState(false);
   
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [isMapOpen, setIsMapOpen] = useState(false);
@@ -257,35 +258,42 @@ const Elevators: React.FC = () => {
     }
   };
 
-  const handleDelete = async (id: string) => {
-    if (!window.confirm('هل أنت متأكد من حذف هذا المصعد؟')) return;
+  const handleArchive = async (elevator: Elevator) => {
+    const restoring = Boolean(elevator.archived_at);
+    if (!restoring && !window.confirm('هل تريد إيقاف وأرشفة هذا المصعد؟ ستظل الفواتير وسجلات الصيانة محفوظة.')) return;
     try {
-      await deleteRow('elevators', id);
-      toast.success('تم الحذف بنجاح');
+      const { error } = await supabase.rpc('set_elevator_archived', {
+        p_elevator_id: elevator.id,
+        p_archived: !restoring,
+      });
+      if (error) throw error;
+      toast.success(restoring ? 'تمت إعادة المصعد إلى المصاعد النشطة' : 'تم إيقاف وأرشفة المصعد مع الاحتفاظ بجميع سجلاته');
       fetchData();
     } catch (error: any) {
-      toast.error(error.message || 'خطأ أثناء الحذف');
+      toast.error(error.message || 'خطأ أثناء تغيير حالة أرشفة المصعد');
     }
   };
 
   const filteredElevators = elevators.filter(e => 
-    (e.elevator_code || '').toLowerCase().includes(search.toLowerCase()) ||
-    String(e.elevator_number).includes(search) ||
-    (e.elevator_name || '').includes(search) ||
-    (e.brand || '').includes(search) ||
-    (e.wire_size || '').includes(search) ||
-    (e.machine_type || '').includes(search) ||
-    (e.chair_k_type || '').includes(search) ||
-    (e.chair_t_type || '').includes(search) ||
-    (e.counterweight_type || '').includes(search) ||
-    (e.interior_buttons_shape || '').includes(search) ||
-    (e.lock_type || '').includes(search) ||
-    (e.tensioner_type || '').includes(search) ||
-    (e.pump_type || '').includes(search) ||
-    (e.controller_board_type || '').includes(search) ||
-    (e.maintenance_subscription || '').includes(search) ||
-    (e.maintenance_lines?.name || '').includes(search) ||
-    (e.buildings?.name || '').includes(search)
+    (showArchived ? Boolean(e.archived_at) : !e.archived_at) && (
+      (e.elevator_code || '').toLowerCase().includes(search.toLowerCase()) ||
+      String(e.elevator_number).includes(search) ||
+      (e.elevator_name || '').includes(search) ||
+      (e.brand || '').includes(search) ||
+      (e.wire_size || '').includes(search) ||
+      (e.machine_type || '').includes(search) ||
+      (e.chair_k_type || '').includes(search) ||
+      (e.chair_t_type || '').includes(search) ||
+      (e.counterweight_type || '').includes(search) ||
+      (e.interior_buttons_shape || '').includes(search) ||
+      (e.lock_type || '').includes(search) ||
+      (e.tensioner_type || '').includes(search) ||
+      (e.pump_type || '').includes(search) ||
+      (e.controller_board_type || '').includes(search) ||
+      (e.maintenance_subscription || '').includes(search) ||
+      (e.maintenance_lines?.name || '').includes(search) ||
+      (e.buildings?.name || '').includes(search)
+    )
   );
 
   const maintenanceAlert = (date: string | null) => {
@@ -335,6 +343,12 @@ const Elevators: React.FC = () => {
           className="bg-transparent border-none outline-none w-full text-sm"
         />
       </div>
+      {can('elevators', 'delete') && (
+        <Button type="button" variant="outline" onClick={() => setShowArchived((value) => !value)} className="flex items-center gap-2">
+          {showArchived ? <RotateCcw className="w-4 h-4" /> : <Archive className="w-4 h-4" />}
+          {showArchived ? 'عرض المصاعد النشطة' : 'عرض المصاعد المؤرشفة'}
+        </Button>
+      )}
 
       <div className="bg-card rounded-md border overflow-x-auto">
         <Table>
@@ -404,8 +418,8 @@ const Elevators: React.FC = () => {
                       {can('elevators', 'update') && <Button variant="ghost" size="icon" onClick={(event) => { event.stopPropagation(); openEditModal(elevator); }}>
                         <Edit className="w-4 h-4 text-primary" />
                       </Button>}
-                      {can('elevators', 'delete') && <Button variant="ghost" size="icon" onClick={(event) => { event.stopPropagation(); handleDelete(elevator.id); }}>
-                        <Trash2 className="w-4 h-4 text-destructive" />
+                      {can('elevators', 'delete') && <Button title={elevator.archived_at ? 'إعادة للتشغيل' : 'إيقاف وأرشفة'} variant="ghost" size="icon" onClick={(event) => { event.stopPropagation(); handleArchive(elevator); }}>
+                        {elevator.archived_at ? <RotateCcw className="w-4 h-4 text-success" /> : <Archive className="w-4 h-4 text-destructive" />}
                       </Button>}
                     </div>
                   </TableCell>

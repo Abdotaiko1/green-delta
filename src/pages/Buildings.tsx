@@ -5,10 +5,9 @@ import { Input } from '@/components/ui/input';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '@/components/ui/dialog';
 import { Label } from '@/components/ui/label';
-import { Plus, Search, Edit, Trash2, MapPin, Droplet, FileSpreadsheet } from 'lucide-react';
+import { Plus, Search, Edit, Archive, RotateCcw, MapPin, Droplet, FileSpreadsheet } from 'lucide-react';
 import { toast } from 'sonner';
 import { Link, useNavigate } from 'react-router-dom';
-import { deleteRow } from '@/lib/database';
 import { useAuth } from '@/contexts/AuthContext';
 
 type Building = {
@@ -24,6 +23,7 @@ type Building = {
   google_maps_link?: string;
   notes: string;
   oil_records?: { next_change_date: string }[];
+  archived_at: string | null;
 };
 
 const Buildings: React.FC = () => {
@@ -33,6 +33,7 @@ const Buildings: React.FC = () => {
   const [maintenanceLines, setMaintenanceLines] = useState<{ id: string; name: string }[]>([]);
   const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState('');
+  const [showArchived, setShowArchived] = useState(false);
   
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [editingId, setEditingId] = useState<string | null>(null);
@@ -126,20 +127,27 @@ const Buildings: React.FC = () => {
     }
   };
 
-  const handleDelete = async (id: string) => {
-    if (!window.confirm('هل أنت متأكد من حذف هذا المبنى؟ ستحذف جميع المصاعد والأعطال المرتبطة به.')) return;
+  const handleArchive = async (building: Building) => {
+    const restoring = Boolean(building.archived_at);
+    if (!restoring && !window.confirm('هل تريد إيقاف وأرشفة هذا المبنى وكل مصاعده؟ ستظل جميع الفواتير والسجلات محفوظة.')) return;
     try {
-      await deleteRow('buildings', id);
-      toast.success('تم الحذف بنجاح');
+      const { error } = await supabase.rpc('set_building_archived', {
+        p_building_id: building.id,
+        p_archived: !restoring,
+      });
+      if (error) throw error;
+      toast.success(restoring ? 'تمت إعادة المبنى ومصاعده إلى القوائم النشطة' : 'تم إيقاف وأرشفة المبنى ومصاعده مع الاحتفاظ بكل السجلات');
       fetchBuildings();
     } catch (error: any) {
-      toast.error(error.message || 'خطأ أثناء الحذف');
+      toast.error(error.message || 'خطأ أثناء تغيير حالة أرشفة المبنى');
     }
   };
 
   const filteredBuildings = buildings.filter(b => 
-    (b.building_code || '').toLowerCase().includes(search.toLowerCase()) ||
-    b.name.includes(search) || b.address.includes(search) || (b.maintenance_lines?.name || '').includes(search)
+    (showArchived ? Boolean(b.archived_at) : !b.archived_at) && (
+      (b.building_code || '').toLowerCase().includes(search.toLowerCase()) ||
+      b.name.includes(search) || b.address.includes(search) || (b.maintenance_lines?.name || '').includes(search)
+    )
   );
 
   return (
@@ -177,6 +185,12 @@ const Buildings: React.FC = () => {
           className="bg-transparent border-none outline-none w-full text-sm"
         />
       </div>
+      {can('buildings', 'delete') && (
+        <Button type="button" variant="outline" onClick={() => setShowArchived((value) => !value)} className="flex items-center gap-2">
+          {showArchived ? <RotateCcw className="w-4 h-4" /> : <Archive className="w-4 h-4" />}
+          {showArchived ? 'عرض المباني النشطة' : 'عرض المباني المؤرشفة'}
+        </Button>
+      )}
 
       <div className="bg-card rounded-md border overflow-x-auto">
         <Table>
@@ -245,8 +259,8 @@ const Buildings: React.FC = () => {
                       {can('buildings', 'update') && <Button variant="ghost" size="icon" onClick={(event) => { event.stopPropagation(); openEditModal(building); }}>
                         <Edit className="w-4 h-4 text-primary" />
                       </Button>}
-                      {can('buildings', 'delete') && <Button variant="ghost" size="icon" onClick={(event) => { event.stopPropagation(); handleDelete(building.id); }}>
-                        <Trash2 className="w-4 h-4 text-destructive" />
+                      {can('buildings', 'delete') && <Button title={building.archived_at ? 'إعادة للتشغيل' : 'إيقاف وأرشفة'} variant="ghost" size="icon" onClick={(event) => { event.stopPropagation(); handleArchive(building); }}>
+                        {building.archived_at ? <RotateCcw className="w-4 h-4 text-success" /> : <Archive className="w-4 h-4 text-destructive" />}
                       </Button>}
                     </div>
                   </TableCell>

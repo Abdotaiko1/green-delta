@@ -27,7 +27,7 @@ import {
 } from 'lucide-react';
 
 export const AppLayout: React.FC<{ children: React.ReactNode }> = ({ children }) => {
-  const { role, user, can, signOut } = useAuth();
+  const { role, user, isOwner, can, signOut } = useAuth();
   const location = useLocation();
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
   
@@ -149,7 +149,7 @@ export const AppLayout: React.FC<{ children: React.ReactNode }> = ({ children })
   ];
 
   const filteredNavItems = navItems.filter((item) =>
-    item.resource === 'permissions' ? role === 'manager' : can(item.resource, 'view'),
+    item.resource === 'permissions' ? isOwner : can(item.resource, 'view'),
   );
 
   const NavLinks = () => (
