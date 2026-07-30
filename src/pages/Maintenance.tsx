@@ -38,7 +38,12 @@ type ElevatorPlan = {
   maintenance_start_date: string | null;
 };
 
-type PlanDraft = { visit_date: string; technician_id: string };
+type PlanDraft = {
+  visit_date: string;
+  technician_id: string;
+  payment_collected: boolean;
+  notes: string;
+};
 type MaintenanceLine = { id: string; name: string };
 type PlanBuilding = { id: string; name: string; maintenance_line_id: string };
 type AssignedTask = {
@@ -302,6 +307,8 @@ const MaintenanceView: React.FC = () => {
     technician_id: role === 'technician'
       ? currentTechnicianId
       : technicians.find((technician) => technician.status !== 'إجازة')?.id || '',
+    payment_collected: false,
+    notes: '',
   };
 
   const updatePlanDraft = (elevatorId: string, patch: Partial<PlanDraft>) => {
@@ -311,14 +318,14 @@ const MaintenanceView: React.FC = () => {
     }));
   };
 
-  const completedByElevator = useMemo(() => {
+  const visitsByElevator = useMemo(() => {
     const rows = maintenanceList.filter((row) => row.status === 'تمت' && row.visit_date?.startsWith(selectedMonth));
-    return new Map(rows.map((row) => [row.elevator_id, row]));
+    const grouped = new Map<string, Maintenance[]>();
+    rows.forEach((row) => {
+      grouped.set(row.elevator_id, [...(grouped.get(row.elevator_id) || []), row]);
+    });
+    return grouped;
   }, [maintenanceList, selectedMonth]);
-
-  const invoiceByBuilding = useMemo(() => new Map(
-    invoices.map((invoice) => [invoice.building_id, invoice]),
-  ), [invoices]);
 
   const visiblePlanLines = useMemo(() => maintenanceLines.map((line) => ({
     ...line,
@@ -345,27 +352,26 @@ const MaintenanceView: React.FC = () => {
 
     setCompletingElevator(elevator.id);
     try {
-      const { error } = role === 'technician'
-        ? await supabase.rpc('technician_complete_maintenance', {
-            p_elevator_id: elevator.id,
-            p_visit_date: draft.visit_date,
-            p_notes: `صيانة شهر ${selectedMonth}`,
-            p_payment_collected: false,
-          })
-        : await supabase.from('maintenance').insert([{
-            type: 'دورية',
-            building_id: elevator.building_id,
-            elevator_id: elevator.id,
-            visit_date: draft.visit_date,
-            technician_id: technicianId,
-            notes: `صيانة شهر ${selectedMonth}`,
-            status: 'تمت',
-            price: Number(elevator.maintenance_price || 0),
-            completed_at: new Date().toISOString(),
-            payment_collected: false,
-          }]);
+      const { error } = await supabase.rpc('complete_maintenance_visit', {
+        p_elevator_id: elevator.id,
+        p_visit_date: draft.visit_date,
+        p_technician_id: role === 'technician' ? null : technicianId,
+        p_notes: draft.notes.trim() || `صيانة شهر ${selectedMonth}`,
+        p_payment_collected: draft.payment_collected,
+      });
       if (error) throw error;
-      toast.success('تم تسجيل إتمام الصيانة. التحصيل يتم من الفاتورة الشهرية.');
+      toast.success(draft.payment_collected
+        ? 'تم تسجيل الزيارة والتحصيل وإضافة الإيراد للمالية'
+        : 'تم تسجيل الزيارة بدون تحصيل');
+      setPlanDrafts((current) => ({
+        ...current,
+        [elevator.id]: {
+          visit_date: draft.visit_date,
+          technician_id: draft.technician_id,
+          payment_collected: false,
+          notes: '',
+        },
+      }));
       await fetchData();
     } catch (error: any) {
       toast.error(error.message || 'تعذر إتمام الصيانة');
@@ -471,7 +477,7 @@ const MaintenanceView: React.FC = () => {
         <div className="p-4 border-b flex flex-col md:flex-row gap-3 md:items-center md:justify-between">
           <div>
             <h3 className="font-bold flex items-center gap-2"><CalendarDays className="w-5 h-5" /> خطة الصيانة الشهرية</h3>
-            <p className="text-sm text-muted-foreground">كل المصاعد تظهر تلقائيًا حسب المبنى. اختر التاريخ والفني ثم اضغط تمت الصيانة.</p>
+            <p className="text-sm text-muted-foreground">كل المصاعد تظهر تلقائيًا حسب الخط والمبنى. يمكنك تسجيل أكثر من زيارة للمصعد في نفس الشهر.</p>
           </div>
           <div className="flex items-center gap-2">
             <Label htmlFor="plan-month" className="whitespace-nowrap">الشهر</Label>
@@ -491,24 +497,43 @@ const MaintenanceView: React.FC = () => {
                     <TableHead className="text-right">الاشتراك</TableHead>
                     {role !== 'technician' && <TableHead className="text-right">السعر</TableHead>}
                     <TableHead className="text-right">البداية</TableHead>
-                    <TableHead className="text-right">تاريخ الصيانة</TableHead>
+                    <TableHead className="text-right">زيارات الشهر</TableHead>
+                    <TableHead className="text-right">تاريخ الزيارة الجديدة</TableHead>
                     <TableHead className="text-right">الفني</TableHead>
-                    {role !== 'technician' && <TableHead className="text-right">حالة التحصيل</TableHead>}
-                    <TableHead className="text-right">حالة الصيانة</TableHead>
+                    <TableHead className="text-right">التحصيل</TableHead>
+                    <TableHead className="text-right">ملاحظات الزيارة</TableHead>
+                    <TableHead className="text-right">الإجراء</TableHead>
                   </TableRow></TableHeader>
                   <TableBody>{building.elevators.map((elevator) => {
-                    const completed = completedByElevator.get(elevator.id);
-                    const invoice = invoiceByBuilding.get(elevator.building_id);
+                    const visits = visitsByElevator.get(elevator.id) || [];
                     const draft = getPlanDraft(elevator.id);
                     return <TableRow key={elevator.id}>
                       <TableCell className="font-medium">{elevator.elevator_name || `مصعد ${elevator.elevator_number}`}</TableCell>
                       <TableCell>{elevator.maintenance_subscription || '-'}</TableCell>
                       {role !== 'technician' && <TableCell>{Number(elevator.maintenance_price || 0).toLocaleString('ar-EG')}</TableCell>}
                       <TableCell>{elevator.maintenance_start_date || '-'}</TableCell>
-                      <TableCell>{completed ? completed.visit_date : <Input type="date" value={draft.visit_date} onChange={(event) => updatePlanDraft(elevator.id, { visit_date: event.target.value })} className="min-w-36" />}</TableCell>
-                      <TableCell>{completed ? completed.technicians?.name || '-' : role === 'technician' ? technicians.find((technician) => technician.id === currentTechnicianId)?.name || '-' : <select value={draft.technician_id} onChange={(event) => updatePlanDraft(elevator.id, { technician_id: event.target.value })} className="flex h-10 min-w-40 rounded-md border border-input bg-background px-3 py-2 text-sm"><option value="">اختر الفني</option>{technicians.map((technician) => <option key={technician.id} value={technician.id} disabled={technician.status === 'إجازة'}>{technician.name}{technician.status === 'إجازة' ? ' (إجازة)' : ''}</option>)}</select>}</TableCell>
-                      {role !== 'technician' && <TableCell>{invoice?.status === 'تم التحصيل' ? <span className="inline-flex items-center gap-1 font-bold text-success"><CheckCircle2 className="w-4 h-4" /> تم التحصيل</span> : <span className="font-bold text-warning">فاتورة غير محصلة</span>}</TableCell>}
-                      <TableCell>{completed ? <span className={`inline-flex items-center gap-1 font-bold ${role === 'technician' || invoice?.status === 'تم التحصيل' ? 'text-success' : 'text-warning'}`}><CheckCircle2 className="w-4 h-4" /> {role === 'technician' || invoice?.status === 'تم التحصيل' ? 'تمت الصيانة' : 'تمت الصيانة بدون تحصيل'}</span> : can('maintenance', 'update') ? <Button onClick={() => completeMaintenance(elevator)} disabled={completingElevator === elevator.id}>{completingElevator === elevator.id ? 'جاري الحفظ...' : 'تمت الصيانة'}</Button> : <span className="text-muted-foreground">غير مسموح</span>}</TableCell>
+                      <TableCell>
+                        <div className="min-w-64 space-y-1.5">
+                          {visits.length === 0 ? <span className="text-sm text-muted-foreground">لا توجد زيارات هذا الشهر</span> : visits.map((visit, index) => (
+                            <div key={visit.id} className="rounded-md border bg-muted/40 px-2 py-1.5 text-xs">
+                              <div className="font-bold">زيارة {visits.length - index}: {visit.visit_date} — {visit.technicians?.name || '-'}</div>
+                              <div className={visit.payment_collected ? 'text-success font-bold' : 'text-warning font-bold'}>
+                                {visit.payment_collected
+                                  ? role === 'technician'
+                                    ? 'تم التحصيل'
+                                    : `تم التحصيل — ${Number(visit.price || 0).toLocaleString('ar-EG')} ج.م`
+                                  : 'بدون تحصيل'}
+                              </div>
+                              {visit.notes && <div className="mt-0.5 text-muted-foreground">{visit.notes}</div>}
+                            </div>
+                          ))}
+                        </div>
+                      </TableCell>
+                      <TableCell><Input type="date" value={draft.visit_date} onChange={(event) => updatePlanDraft(elevator.id, { visit_date: event.target.value })} className="min-w-36" /></TableCell>
+                      <TableCell>{role === 'technician' ? technicians.find((technician) => technician.id === currentTechnicianId)?.name || '-' : <select value={draft.technician_id} onChange={(event) => updatePlanDraft(elevator.id, { technician_id: event.target.value })} className="flex h-10 min-w-40 rounded-md border border-input bg-background px-3 py-2 text-sm"><option value="">اختر الفني</option>{technicians.map((technician) => <option key={technician.id} value={technician.id} disabled={technician.status === 'إجازة'}>{technician.name}{technician.status === 'إجازة' ? ' (إجازة)' : ''}</option>)}</select>}</TableCell>
+                      <TableCell><select value={draft.payment_collected ? 'collected' : 'not_collected'} onChange={(event) => updatePlanDraft(elevator.id, { payment_collected: event.target.value === 'collected' })} className="flex h-10 min-w-36 rounded-md border border-input bg-background px-3 py-2 text-sm"><option value="not_collected">بدون تحصيل</option><option value="collected">تم التحصيل</option></select></TableCell>
+                      <TableCell><Input value={draft.notes} onChange={(event) => updatePlanDraft(elevator.id, { notes: event.target.value })} placeholder="ملاحظات اختيارية" className="min-w-44" /></TableCell>
+                      <TableCell>{can('maintenance', 'update') ? <Button onClick={() => completeMaintenance(elevator)} disabled={completingElevator === elevator.id}><CheckCircle2 className="ml-1 h-4 w-4" />{completingElevator === elevator.id ? 'جاري الحفظ...' : 'تمت الصيانة'}</Button> : <span className="text-muted-foreground">غير مسموح</span>}</TableCell>
                     </TableRow>;
                   })}</TableBody>
                 </Table>

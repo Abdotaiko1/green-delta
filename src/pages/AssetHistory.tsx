@@ -51,7 +51,7 @@ const AssetHistory: React.FC = () => {
         const [assetRes, faultsRes, maintenanceRes, oilRes, partsRes, elevatorsRes, financeRes] = await Promise.all([
           assetQuery,
           supabase.from('faults').select('id, report_number, description, status, created_at').eq(filterColumn, id),
-          supabase.from('maintenance').select('id, type, visit_date, notes').eq(filterColumn, id),
+          supabase.from('maintenance').select('id, type, visit_date, notes, status, payment_collected, price, technicians(name)').eq(filterColumn, id),
           supabase.from('oil_records').select('id, oil_type, oil_brand, change_date, next_change_date').eq(filterColumn, id),
           partsQuery,
           isBuilding ? supabase.from('elevators').select('id, elevator_code, elevator_number, elevator_name, status, maintenance_subscription, next_maintenance_date').eq('building_id', id) : Promise.resolve({ data: [], error: null }),
@@ -75,8 +75,8 @@ const AssetHistory: React.FC = () => {
             id: `maintenance-${row.id}`,
             date: row.visit_date,
             type: 'صيانة' as const,
-            title: `صيانة ${row.type}`,
-            details: row.notes || 'بدون ملاحظات',
+            title: `صيانة ${row.type} — ${row.payment_collected ? 'تم التحصيل' : 'بدون تحصيل'}`,
+            details: `${row.technicians?.name ? `الفني: ${row.technicians.name} — ` : ''}${row.notes || 'بدون ملاحظات'}${role === 'technician' ? '' : ` — المبلغ: ${Number(row.price || 0).toLocaleString('ar-EG')} ج.م`}`,
           })),
           ...(oilRes.data || []).map((row: any) => ({
             id: `oil-${row.id}`,
