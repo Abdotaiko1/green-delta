@@ -83,7 +83,8 @@ const MaintenanceView: React.FC = () => {
   const [collectingInvoice, setCollectingInvoice] = useState<string | null>(null);
   
   const [loading, setLoading] = useState(true);
-  const [search, setSearch] = useState('');
+  const [planSearch, setPlanSearch] = useState('');
+  const [visitSearch, setVisitSearch] = useState('');
   const [selectedMonth, setSelectedMonth] = useState(new Date().toISOString().slice(0, 7));
   const [planDrafts, setPlanDrafts] = useState<Record<string, PlanDraft>>({});
   const [completingElevator, setCompletingElevator] = useState<string | null>(null);
@@ -290,10 +291,21 @@ const MaintenanceView: React.FC = () => {
     }
   };
 
-  const filteredList = maintenanceList.filter(m => 
-    (m.buildings?.name || '').includes(search) ||
-    m.type.includes(search)
-  );
+  const filteredList = useMemo(() => {
+    const value = visitSearch.trim().toLocaleLowerCase('ar');
+    if (!value) return maintenanceList;
+    return maintenanceList.filter((visit) => [
+      visit.type,
+      visit.buildings?.name,
+      visit.elevators?.elevator_name,
+      visit.elevators?.elevator_number,
+      visit.visit_date,
+      visit.technicians?.name,
+      visit.notes,
+      visit.status,
+      visit.payment_collected ? 'تم التحصيل' : 'بدون تحصيل',
+    ].some((field) => String(field ?? '').toLocaleLowerCase('ar').includes(value)));
+  }, [maintenanceList, visitSearch]);
 
   const availableElevators = elevators.filter(e => e.building_id === formData.building_id);
 
@@ -332,11 +344,11 @@ const MaintenanceView: React.FC = () => {
     buildings: buildings.filter((building) => building.maintenance_line_id === line.id).map((building) => ({
       ...building,
       elevators: elevators.filter((elevator) => elevator.building_id === building.id).filter((elevator) => {
-        const value = search.trim();
+        const value = planSearch.trim();
         return !value || line.name.includes(value) || building.name.includes(value) || String(elevator.elevator_number).includes(value) || (elevator.elevator_name || '').includes(value);
       }),
     })).filter((building) => building.elevators.length > 0),
-  })).filter((line) => line.buildings.length > 0), [maintenanceLines, buildings, elevators, search]);
+  })).filter((line) => line.buildings.length > 0), [maintenanceLines, buildings, elevators, planSearch]);
 
   const completeMaintenance = async (elevator: ElevatorPlan) => {
     const draft = getPlanDraft(elevator.id);
@@ -453,9 +465,9 @@ const MaintenanceView: React.FC = () => {
         <Search className="w-4 h-4 text-muted-foreground ml-2 shrink-0" />
         <input
           type="text"
-          placeholder="بحث بالمبنى أو النوع..."
-          value={search}
-          onChange={(e) => setSearch(e.target.value)}
+          placeholder="بحث في الخطة بالخط أو المبنى أو المصعد..."
+          value={planSearch}
+          onChange={(e) => setPlanSearch(e.target.value)}
           className="bg-transparent border-none outline-none w-full text-sm"
         />
       </div>
@@ -544,7 +556,18 @@ const MaintenanceView: React.FC = () => {
         </div>
       </div>
 
-      <div className="bg-card rounded-md border overflow-x-auto">
+      <div className="bg-card rounded-md border overflow-hidden">
+        <div className="border-b p-4 flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
+          <div>
+            <h3 className="font-bold flex items-center gap-2"><CalendarDays className="w-5 h-5" /> سجل الزيارات</h3>
+            <p className="text-sm text-muted-foreground">البحث يشمل المبنى والمصعد والفني والتاريخ والملاحظات.</p>
+          </div>
+          <div className="flex items-center rounded-md border bg-background px-3 py-2 w-full md:max-w-md">
+            <Search className="w-4 h-4 text-muted-foreground ml-2 shrink-0" />
+            <input type="search" value={visitSearch} onChange={(event) => setVisitSearch(event.target.value)} placeholder="ابحث في الزيارات..." className="bg-transparent border-none outline-none w-full text-sm" />
+          </div>
+        </div>
+        <div className="overflow-x-auto">
         <Table>
           <TableHeader>
             <TableRow>
@@ -603,6 +626,7 @@ const MaintenanceView: React.FC = () => {
             )}
           </TableBody>
         </Table>
+        </div>
       </div>
 
       <Dialog open={isModalOpen} onOpenChange={setIsModalOpen}>

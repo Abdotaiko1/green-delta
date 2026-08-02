@@ -1,9 +1,11 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import { Link, useLocation, useParams } from 'react-router-dom';
-import { ArrowUpDown, Building2, CalendarDays, Droplet, PackageOpen, Wrench, AlertTriangle, WalletCards, TrendingUp, TrendingDown } from 'lucide-react';
+import { ArrowUpDown, Building2, CalendarDays, Droplet, PackageOpen, Wrench, AlertTriangle, WalletCards, TrendingUp, TrendingDown, FileClock, Plus, Trash2 } from 'lucide-react';
 import { supabase } from '@/db/supabase';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
+import { Input } from '@/components/ui/input';
+import { Label } from '@/components/ui/label';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import { toast } from 'sonner';
 import { useAuth } from '@/contexts/AuthContext';
@@ -25,8 +27,28 @@ type FinancialEntry = {
   amount: number;
 };
 
+type LegacyRecord = {
+  id: string;
+  record_date: string;
+  record_type: 'عطل' | 'تغيير قطعة غيار' | 'ملاحظة';
+  title: string;
+  details: string | null;
+  part_name: string | null;
+  price: number;
+  created_at: string;
+};
+
+const emptyLegacyForm = () => ({
+  record_date: new Date().toISOString().slice(0, 10),
+  record_type: 'عطل' as LegacyRecord['record_type'],
+  title: '',
+  details: '',
+  part_name: '',
+  price: '',
+});
+
 const AssetHistory: React.FC = () => {
-  const { role } = useAuth();
+  const { role, can } = useAuth();
   const { id = '' } = useParams();
   const location = useLocation();
   const isBuilding = location.pathname.startsWith('/buildings/');
@@ -34,6 +56,9 @@ const AssetHistory: React.FC = () => {
   const [elevators, setElevators] = useState<any[]>([]);
   const [timeline, setTimeline] = useState<TimelineItem[]>([]);
   const [financialEntries, setFinancialEntries] = useState<FinancialEntry[]>([]);
+  const [legacyRecords, setLegacyRecords] = useState<LegacyRecord[]>([]);
+  const [legacyForm, setLegacyForm] = useState(emptyLegacyForm);
+  const [savingLegacy, setSavingLegacy] = useState(false);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
@@ -48,7 +73,7 @@ const AssetHistory: React.FC = () => {
           ? supabase.from('spare_part_replacements').select('id, part_name, part_code_snapshot, replacement_date, quantity_used, invoice_number, technicians(name)').eq(filterColumn, id)
           : supabase.from('spare_part_replacements').select('id, part_name, part_code_snapshot, replacement_date, price, quantity_used, invoice_number, technicians(name), inventory(part_code)').eq(filterColumn, id);
 
-        const [assetRes, faultsRes, maintenanceRes, oilRes, partsRes, elevatorsRes, financeRes] = await Promise.all([
+        const [assetRes, faultsRes, maintenanceRes, oilRes, partsRes, elevatorsRes, financeRes, legacyRes] = await Promise.all([
           assetQuery,
           supabase.from('faults').select('id, report_number, description, status, created_at').eq(filterColumn, id),
           supabase.from('maintenance').select('id, type, visit_date, notes, status, payment_collected, price, technicians(name)').eq(filterColumn, id),
@@ -56,12 +81,16 @@ const AssetHistory: React.FC = () => {
           partsQuery,
           isBuilding ? supabase.from('elevators').select('id, elevator_code, elevator_number, elevator_name, status, maintenance_subscription, next_maintenance_date').eq('building_id', id) : Promise.resolve({ data: [], error: null }),
           role === 'technician' ? Promise.resolve({ data: [], error: null }) : supabase.from('elevator_financial_entries').select('id, entry_date, entry_type, category, description, amount').eq(filterColumn, id).order('entry_date', { ascending: false }),
+          isBuilding
+            ? Promise.resolve({ data: [], error: null })
+            : supabase.from('elevator_legacy_records').select('id, record_date, record_type, title, details, part_name, price, created_at').eq('elevator_id', id).order('record_date', { ascending: false }).order('created_at', { ascending: false }),
         ]);
 
         if (assetRes.error) throw assetRes.error;
         setAsset(assetRes.data);
         setElevators(elevatorsRes.data || []);
         setFinancialEntries((financeRes.data || []) as FinancialEntry[]);
+        setLegacyRecords(legacyRes.error ? [] : (legacyRes.data || []) as LegacyRecord[]);
 
         const items: TimelineItem[] = [
           ...(faultsRes.data || []).map((row: any) => ({
@@ -103,6 +132,53 @@ const AssetHistory: React.FC = () => {
 
     fetchHistory();
   }, [id, isBuilding, role]);
+
+  const saveLegacyRecord = async (event: React.FormEvent) => {
+    event.preventDefault();
+    const title = legacyForm.title.trim();
+    const partName = legacyForm.part_name.trim();
+    if (!title) {
+      toast.error('اكتب سبب العطل أو عنوان السجل');
+      return;
+    }
+    if (legacyForm.record_type === 'تغيير قطعة غيار' && !partName) {
+      toast.error('اكتب اسم قطعة الغيار');
+      return;
+    }
+
+    setSavingLegacy(true);
+    try {
+      const payload = {
+        elevator_id: id,
+        record_date: legacyForm.record_date,
+        record_type: legacyForm.record_type,
+        title,
+        details: legacyForm.details.trim() || null,
+        part_name: legacyForm.record_type === 'تغيير قطعة غيار' ? partName : null,
+        price: legacyForm.record_type === 'تغيير قطعة غيار' ? Math.max(Number(legacyForm.price || 0), 0) : 0,
+      };
+      const { data, error } = await supabase.from('elevator_legacy_records').insert(payload).select('id, record_date, record_type, title, details, part_name, price, created_at').single();
+      if (error) throw error;
+      setLegacyRecords((current) => [data as LegacyRecord, ...current]);
+      setLegacyForm(emptyLegacyForm());
+      toast.success('تمت إضافة السجل القديم بدون تأثير على المالية');
+    } catch (error: any) {
+      toast.error(error.message || 'تعذرت إضافة السجل القديم');
+    } finally {
+      setSavingLegacy(false);
+    }
+  };
+
+  const deleteLegacyRecord = async (recordId: string) => {
+    if (!window.confirm('هل تريد حذف هذا السجل القديم؟')) return;
+    const { error } = await supabase.from('elevator_legacy_records').delete().eq('id', recordId);
+    if (error) {
+      toast.error(error.message || 'تعذر حذف السجل');
+      return;
+    }
+    setLegacyRecords((current) => current.filter((record) => record.id !== recordId));
+    toast.success('تم حذف السجل');
+  };
 
   const counts = useMemo(() => ({
     faults: timeline.filter((item) => item.type === 'عطل').length,
@@ -181,6 +257,70 @@ const AssetHistory: React.FC = () => {
         <div className={`rounded-md border p-4 font-bold ${maintenanceDays < 0 ? 'border-destructive/40 bg-destructive/10 text-destructive' : 'border-warning/40 bg-warning/10 text-warning'}`}>
           تنبيه الصيانة: {maintenanceDays < 0 ? `الموعد متأخر ${Math.abs(maintenanceDays)} يوم` : `متبقي ${maintenanceDays} يوم على موعد الصيانة`}
         </div>
+      )}
+
+      {!isBuilding && (
+        <Card>
+          <CardHeader>
+            <CardTitle className="flex items-center gap-2"><FileClock className="w-5 h-5" /> سجل قديم</CardTitle>
+            <p className="text-sm text-muted-foreground">لتسجيل أعطال وقطع غيار وملاحظات سابقة لهذا المصعد. هذا السجل لا يؤثر على المالية أو المخزن.</p>
+          </CardHeader>
+          <CardContent className="space-y-5">
+            {can('elevators', 'update') && (
+              <form onSubmit={saveLegacyRecord} className="rounded-md border bg-muted/20 p-4 space-y-4">
+                <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+                  <div className="space-y-2">
+                    <Label>نوع السجل</Label>
+                    <select
+                      value={legacyForm.record_type}
+                      onChange={(event) => setLegacyForm((current) => ({ ...current, record_type: event.target.value as LegacyRecord['record_type'] }))}
+                      className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
+                    >
+                      <option value="عطل">عطل</option>
+                      <option value="تغيير قطعة غيار">تغيير قطعة غيار</option>
+                      <option value="ملاحظة">ملاحظة</option>
+                    </select>
+                  </div>
+                  <div className="space-y-2">
+                    <Label>التاريخ</Label>
+                    <Input type="date" value={legacyForm.record_date} onChange={(event) => setLegacyForm((current) => ({ ...current, record_date: event.target.value }))} required />
+                  </div>
+                  <div className="space-y-2">
+                    <Label>{legacyForm.record_type === 'عطل' ? 'سبب العطل' : 'عنوان السجل'}</Label>
+                    <Input value={legacyForm.title} onChange={(event) => setLegacyForm((current) => ({ ...current, title: event.target.value }))} required />
+                  </div>
+                </div>
+                {legacyForm.record_type === 'تغيير قطعة غيار' && (
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                    <div className="space-y-2"><Label>اسم قطعة الغيار</Label><Input value={legacyForm.part_name} onChange={(event) => setLegacyForm((current) => ({ ...current, part_name: event.target.value }))} required /></div>
+                    {role !== 'technician' && <div className="space-y-2"><Label>السعر القديم (للسجل فقط)</Label><Input type="number" min="0" step="0.01" value={legacyForm.price} onChange={(event) => setLegacyForm((current) => ({ ...current, price: event.target.value }))} /></div>}
+                  </div>
+                )}
+                <div className="space-y-2">
+                  <Label>ملاحظات وتفاصيل</Label>
+                  <textarea value={legacyForm.details} onChange={(event) => setLegacyForm((current) => ({ ...current, details: event.target.value }))} rows={3} className="flex w-full rounded-md border border-input bg-background px-3 py-2 text-sm" placeholder="اكتب التفاصيل المتاحة..." />
+                </div>
+                <Button type="submit" disabled={savingLegacy}><Plus className="ml-1 w-4 h-4" />{savingLegacy ? 'جاري الحفظ...' : 'إضافة للسجل القديم'}</Button>
+              </form>
+            )}
+
+            <div className="overflow-x-auto rounded-md border">
+              <Table>
+                <TableHeader><TableRow><TableHead className="text-right">التاريخ</TableHead><TableHead className="text-right">النوع</TableHead><TableHead className="text-right">البيان</TableHead><TableHead className="text-right">التفاصيل</TableHead>{role !== 'technician' && <TableHead className="text-right">سعر قديم</TableHead>}{can('elevators', 'delete') && <TableHead className="w-16" />}</TableRow></TableHeader>
+                <TableBody>
+                  {legacyRecords.length === 0 ? <TableRow><TableCell colSpan={role !== 'technician' ? (can('elevators', 'delete') ? 6 : 5) : (can('elevators', 'delete') ? 5 : 4)} className="py-8 text-center text-muted-foreground">لا يوجد سجل قديم لهذا المصعد</TableCell></TableRow> : legacyRecords.map((record) => <TableRow key={record.id}>
+                    <TableCell className="whitespace-nowrap">{new Date(`${record.record_date}T12:00:00`).toLocaleDateString('ar-EG')}</TableCell>
+                    <TableCell><span className="rounded-full bg-muted px-2 py-1 text-xs font-bold">{record.record_type}</span></TableCell>
+                    <TableCell className="font-medium">{record.part_name ? `${record.part_name} — ${record.title}` : record.title}</TableCell>
+                    <TableCell>{record.details || '-'}</TableCell>
+                    {role !== 'technician' && <TableCell>{record.record_type === 'تغيير قطعة غيار' ? formatMoney(Number(record.price || 0)) : '-'}</TableCell>}
+                    {can('elevators', 'delete') && <TableCell><Button variant="ghost" size="icon" onClick={() => deleteLegacyRecord(record.id)}><Trash2 className="w-4 h-4 text-destructive" /></Button></TableCell>}
+                  </TableRow>)}
+                </TableBody>
+              </Table>
+            </div>
+          </CardContent>
+        </Card>
       )}
 
       {!isBuilding && role !== 'technician' && (
