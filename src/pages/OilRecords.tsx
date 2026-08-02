@@ -34,6 +34,7 @@ type OilRecord = {
   changed_at: string;
   next_change_date: string;
   notes: string | null;
+  exclude_from_finance: boolean;
 };
 
 type OilSheetRow = {
@@ -82,6 +83,7 @@ const OilRecords: React.FC = () => {
   const [selectedElevator, setSelectedElevator] = useState<Elevator | null>(null);
   const [formData, setFormData] = useState({
     change_date: cairoDate(),
+    exclude_from_finance: false,
     oil_type: '',
     oil_brand: '',
     oil_quantity: 0,
@@ -112,7 +114,7 @@ const OilRecords: React.FC = () => {
       const [recordsRes, elevatorsRes] = await Promise.all([
         supabase
           .from('oil_records')
-          .select('id, building_id, elevator_id, oil_type, oil_brand, oil_quantity, price, cost_amount, change_date, changed_at, next_change_date, notes')
+          .select('id, building_id, elevator_id, oil_type, oil_brand, oil_quantity, price, cost_amount, change_date, changed_at, next_change_date, notes, exclude_from_finance')
           .order('changed_at', { ascending: false }),
         elevatorsQuery,
       ]);
@@ -207,6 +209,7 @@ const OilRecords: React.FC = () => {
     setSelectedElevator(row.elevator);
     setFormData({
       change_date: cairoDate(),
+      exclude_from_finance: false,
       oil_type: row.latestRecord?.oil_type || '',
       oil_brand: row.latestRecord?.oil_brand || '',
       oil_quantity: Number(row.latestRecord?.oil_quantity || 0),
@@ -243,6 +246,7 @@ const OilRecords: React.FC = () => {
       changed_at: pressedAt,
       next_change_date: addSixMonths(changeDate),
       notes: formData.notes.trim() || null,
+      exclude_from_finance: formData.exclude_from_finance,
     };
 
     setSaving(true);
@@ -257,6 +261,7 @@ const OilRecords: React.FC = () => {
           p_cost_amount: payload.cost_amount,
           p_change_date: payload.change_date,
           p_notes: payload.notes,
+          p_exclude_from_finance: payload.exclude_from_finance,
         })
       : await supabase.from('oil_records').insert([payload]);
     setSaving(false);
@@ -350,9 +355,14 @@ const OilRecords: React.FC = () => {
                   <TableCell className="font-medium">{row.elevator.building_name}</TableCell>
                   <TableCell>{elevatorLabel}</TableCell>
                   <TableCell>
-                    {row.latestRecord
-                      ? `${row.latestRecord.oil_type} — ${row.latestRecord.oil_brand} (${row.latestRecord.oil_quantity})`
-                      : 'لم يسجل تغيير زيت'}
+                    {row.latestRecord ? (
+                      <div>
+                        <div>{`${row.latestRecord.oil_type} — ${row.latestRecord.oil_brand} (${row.latestRecord.oil_quantity})`}</div>
+                        {row.latestRecord.exclude_from_finance && (
+                          <div className="mt-1 text-xs font-bold text-muted-foreground">سجل قديم — خارج المالية</div>
+                        )}
+                      </div>
+                    ) : 'لم يسجل تغيير زيت'}
                   </TableCell>
                   {showFinancial && (
                     <TableCell>
@@ -446,6 +456,20 @@ const OilRecords: React.FC = () => {
               <Label>ملاحظات</Label>
               <Input value={formData.notes} onChange={(event) => setFormData({ ...formData, notes: event.target.value })} />
             </div>
+            <label className="flex cursor-pointer items-start gap-3 rounded-md border bg-muted/30 p-3">
+              <input
+                type="checkbox"
+                checked={formData.exclude_from_finance}
+                onChange={(event) => setFormData({ ...formData, exclude_from_finance: event.target.checked })}
+                className="mt-1 h-4 w-4"
+              />
+              <span>
+                <span className="block font-bold">هذا تغيير زيت قديم — لا يُضاف إلى المالية</span>
+                <span className="block text-xs text-muted-foreground">
+                  سيتم حفظ السعر والتكلفة للتوثيق فقط بدون إنشاء إيراد أو مصروف.
+                </span>
+              </span>
+            </label>
             <p className="text-sm text-muted-foreground">
               سيتم حفظ التاريخ المختار ووقت التسجيل الحالي، وحساب الموعد القادم تلقائيًا بعد 6 أشهر من التاريخ المختار.
             </p>
