@@ -56,12 +56,17 @@ const addSixMonths = (date: string) => {
   return next.toISOString().slice(0, 10);
 };
 
-const dateTimeLabel = (date: string) =>
-  new Intl.DateTimeFormat('ar-EG', {
+const oilChangeDateTimeLabel = (changeDate: string, recordedAt: string) => {
+  const dateLabel = new Intl.DateTimeFormat('ar-EG', {
     dateStyle: 'medium',
+    timeZone: 'Africa/Cairo',
+  }).format(new Date(`${changeDate}T12:00:00`));
+  const timeLabel = new Intl.DateTimeFormat('ar-EG', {
     timeStyle: 'short',
     timeZone: 'Africa/Cairo',
-  }).format(new Date(date));
+  }).format(new Date(recordedAt));
+  return `${dateLabel} — ${timeLabel}`;
+};
 
 const OilRecords: React.FC = () => {
   const { role, can } = useAuth();
@@ -76,6 +81,7 @@ const OilRecords: React.FC = () => {
   const [isOpen, setIsOpen] = useState(false);
   const [selectedElevator, setSelectedElevator] = useState<Elevator | null>(null);
   const [formData, setFormData] = useState({
+    change_date: cairoDate(),
     oil_type: '',
     oil_brand: '',
     oil_quantity: 0,
@@ -200,6 +206,7 @@ const OilRecords: React.FC = () => {
   const openCompleteOil = (row: OilSheetRow) => {
     setSelectedElevator(row.elevator);
     setFormData({
+      change_date: cairoDate(),
       oil_type: row.latestRecord?.oil_type || '',
       oil_brand: row.latestRecord?.oil_brand || '',
       oil_quantity: Number(row.latestRecord?.oil_quantity || 0),
@@ -212,13 +219,18 @@ const OilRecords: React.FC = () => {
 
   const handleSubmit = async (event: React.FormEvent) => {
     event.preventDefault();
-    if (!selectedElevator || !formData.oil_type.trim() || !formData.oil_brand.trim()) {
-      toast.error('أدخل نوع الزيت والماركة');
+    if (!selectedElevator || !formData.change_date || !formData.oil_type.trim() || !formData.oil_brand.trim()) {
+      toast.error('اختر تاريخ التغيير وأدخل نوع الزيت والماركة');
+      return;
+    }
+
+    if (formData.change_date > cairoDate()) {
+      toast.error('لا يمكن تسجيل تغيير الزيت بتاريخ مستقبلي');
       return;
     }
 
     const pressedAt = new Date().toISOString();
-    const changeDate = cairoDate();
+    const changeDate = formData.change_date;
     const payload = {
       building_id: selectedElevator.building_id,
       elevator_id: selectedElevator.id,
@@ -310,7 +322,7 @@ const OilRecords: React.FC = () => {
               <TableHead className="text-right">المصعد</TableHead>
               <TableHead className="text-right">آخر زيت</TableHead>
               {showFinancial && <TableHead className="text-right">السعر</TableHead>}
-              <TableHead className="text-right">آخر تغيير بالوقت</TableHead>
+              <TableHead className="text-right">تاريخ آخر تغيير / وقت التسجيل</TableHead>
               <TableHead className="text-right">التغيير القادم</TableHead>
               <TableHead className="text-right">الحالة</TableHead>
               <TableHead className="text-right">الإجراء</TableHead>
@@ -348,7 +360,9 @@ const OilRecords: React.FC = () => {
                     </TableCell>
                   )}
                   <TableCell className="whitespace-nowrap">
-                    {row.latestRecord ? dateTimeLabel(row.latestRecord.changed_at) : '-'}
+                    {row.latestRecord
+                      ? oilChangeDateTimeLabel(row.latestRecord.change_date, row.latestRecord.changed_at)
+                      : '-'}
                   </TableCell>
                   <TableCell className="whitespace-nowrap font-bold">{row.nextChangeDate}</TableCell>
                   <TableCell>
@@ -390,6 +404,19 @@ const OilRecords: React.FC = () => {
               <p><strong>المصعد:</strong> {selectedElevator?.elevator_name || `مصعد ${selectedElevator?.elevator_number || ''}`}</p>
             </div>
             <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
+              <div className="space-y-2 md:col-span-2">
+                <Label>تاريخ تغيير الزيت</Label>
+                <Input
+                  type="date"
+                  max={cairoDate()}
+                  value={formData.change_date}
+                  onChange={(event) => setFormData({ ...formData, change_date: event.target.value })}
+                  required
+                />
+                <p className="text-xs text-muted-foreground">
+                  الموعد القادم: {formData.change_date ? addSixMonths(formData.change_date) : '-'}
+                </p>
+              </div>
               <div className="space-y-2">
                 <Label>نوع الزيت</Label>
                 <Input value={formData.oil_type} onChange={(event) => setFormData({ ...formData, oil_type: event.target.value })} required />
@@ -420,7 +447,7 @@ const OilRecords: React.FC = () => {
               <Input value={formData.notes} onChange={(event) => setFormData({ ...formData, notes: event.target.value })} />
             </div>
             <p className="text-sm text-muted-foreground">
-              عند الضغط سيتم حفظ التاريخ والوقت الحاليين، وحساب الموعد القادم تلقائيًا بعد 6 أشهر.
+              سيتم حفظ التاريخ المختار ووقت التسجيل الحالي، وحساب الموعد القادم تلقائيًا بعد 6 أشهر من التاريخ المختار.
             </p>
             <DialogFooter>
               <Button type="submit" disabled={saving}>
