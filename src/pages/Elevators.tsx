@@ -5,7 +5,7 @@ import { Input } from '@/components/ui/input';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '@/components/ui/dialog';
 import { Label } from '@/components/ui/label';
-import { Plus, Search, Edit, Archive, RotateCcw, MapPin } from 'lucide-react';
+import { Plus, Search, Edit, Archive, RotateCcw, MapPin, Trash2 } from 'lucide-react';
 import { toast } from 'sonner';
 import { useNavigate } from 'react-router-dom';
 import BuildingCombobox from '@/components/BuildingCombobox';
@@ -292,6 +292,27 @@ const Elevators: React.FC = () => {
     }
   };
 
+  const handlePermanentDelete = async (elevator: Elevator) => {
+    if (!elevator.archived_at) return;
+
+    const buildingLabel = elevator.buildings?.name || 'المبنى المرتبط بهذا المصعد';
+    const confirmed = window.confirm(
+      `حذف المبنى «${buildingLabel}» نهائيًا؟\nسيتم حذف كل مصاعده وفواتيره وسجلات الصيانة والأعطال والزيت وقطع الغيار والمالية. لا يمكن التراجع عن هذا الإجراء.`,
+    );
+    if (!confirmed) return;
+
+    try {
+      const { error } = await supabase.rpc('permanently_delete_building_from_archived_elevator', {
+        p_elevator_id: elevator.id,
+      });
+      if (error) throw error;
+      toast.success('تم حذف المبنى وكل مصاعده وفواتيره وسجلاته نهائيًا');
+      fetchData();
+    } catch (error: any) {
+      toast.error(error.message || 'تعذر حذف المبنى وبياناته');
+    }
+  };
+
   const filteredElevators = elevators.filter(e => 
     (showArchived ? Boolean(e.archived_at) : !e.archived_at) && (
       (e.elevator_code || '').toLowerCase().includes(search.toLowerCase()) ||
@@ -438,6 +459,9 @@ const Elevators: React.FC = () => {
                       </Button>}
                       {can('elevators', 'delete') && <Button title={elevator.archived_at ? 'إعادة للتشغيل' : 'إيقاف وأرشفة'} variant="ghost" size="icon" onClick={(event) => { event.stopPropagation(); handleArchive(elevator); }}>
                         {elevator.archived_at ? <RotateCcw className="w-4 h-4 text-success" /> : <Archive className="w-4 h-4 text-destructive" />}
+                      </Button>}
+                      {elevator.archived_at && can('elevators', 'delete') && can('buildings', 'delete') && <Button title="حذف المبنى نهائيًا" variant="ghost" size="icon" className="text-destructive hover:bg-destructive/10 hover:text-destructive" onClick={(event) => { event.stopPropagation(); handlePermanentDelete(elevator); }}>
+                        <Trash2 className="w-4 h-4" />
                       </Button>}
                     </div>
                   </TableCell>
