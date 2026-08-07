@@ -5,7 +5,7 @@ import { Input } from '@/components/ui/input';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '@/components/ui/dialog';
 import { Label } from '@/components/ui/label';
-import { Plus, Search, Edit, Archive, RotateCcw, MapPin, Droplet, FileSpreadsheet } from 'lucide-react';
+import { Plus, Search, Edit, Archive, RotateCcw, MapPin, Droplet, FileSpreadsheet, Trash2 } from 'lucide-react';
 import { toast } from 'sonner';
 import { Link, useNavigate } from 'react-router-dom';
 import { useAuth } from '@/contexts/AuthContext';
@@ -143,6 +143,25 @@ const Buildings: React.FC = () => {
     }
   };
 
+  const handlePermanentDelete = async (building: Building) => {
+    if (!building.archived_at) return;
+    const confirmed = window.confirm(
+      `حذف المبنى «${building.name}» نهائيًا؟\nسيتم حذف المصاعد والفواتير والصيانة والأعطال وكل السجلات المرتبطة، ولا يمكن التراجع.`
+    );
+    if (!confirmed) return;
+
+    try {
+      const { error } = await supabase.rpc('permanently_delete_archived_building', {
+        p_building_id: building.id,
+      });
+      if (error) throw error;
+      toast.success('تم حذف المبنى المؤرشف وكل بياناته نهائيًا');
+      fetchBuildings();
+    } catch (error: any) {
+      toast.error(error.message || 'تعذر حذف المبنى المؤرشف');
+    }
+  };
+
   const filteredBuildings = buildings.filter(b => 
     (showArchived ? Boolean(b.archived_at) : !b.archived_at) && (
       (b.building_code || '').toLowerCase().includes(search.toLowerCase()) ||
@@ -262,6 +281,11 @@ const Buildings: React.FC = () => {
                       {can('buildings', 'delete') && <Button title={building.archived_at ? 'إعادة للتشغيل' : 'إيقاف وأرشفة'} variant="ghost" size="icon" onClick={(event) => { event.stopPropagation(); handleArchive(building); }}>
                         {building.archived_at ? <RotateCcw className="w-4 h-4 text-success" /> : <Archive className="w-4 h-4 text-destructive" />}
                       </Button>}
+                      {building.archived_at && can('buildings', 'delete') && (
+                        <Button title="حذف نهائي" variant="ghost" size="icon" onClick={(event) => { event.stopPropagation(); handlePermanentDelete(building); }}>
+                          <Trash2 className="w-4 h-4 text-destructive" />
+                        </Button>
+                      )}
                     </div>
                   </TableCell>
                 </TableRow>

@@ -47,7 +47,14 @@ type Elevator = {
   maintenance_lines?: { name: string };
 };
 
-type Building = { id: string; name: string; address: string; maintenance_line_id: string };
+type Building = {
+  id: string;
+  name: string;
+  address: string;
+  maintenance_line_id: string;
+  elevator_count: number;
+  archived_at: string | null;
+};
 
 const Elevators: React.FC = () => {
   const { role, can } = useAuth();
@@ -101,7 +108,7 @@ const Elevators: React.FC = () => {
       setLoading(true);
       const [elevatorsRes, buildingsRes, linesRes] = await Promise.all([
         supabase.from('elevators').select('*, buildings(name, address), maintenance_lines(name)').order('created_at', { ascending: false }),
-        supabase.from('buildings').select('id, name, address, maintenance_line_id'),
+        supabase.from('buildings').select('id, name, address, maintenance_line_id, elevator_count, archived_at').is('archived_at', null),
         supabase.from('maintenance_lines').select('id, name').order('name'),
       ]);
         
@@ -212,6 +219,17 @@ const Elevators: React.FC = () => {
       return;
     }
     try {
+      const selectedBuilding = buildings.find((building) => building.id === formData.building_id);
+      const registeredElevators = elevators.filter((elevator) =>
+        elevator.building_id === formData.building_id &&
+        !elevator.archived_at &&
+        elevator.id !== editingId
+      ).length;
+      if (selectedBuilding && registeredElevators >= selectedBuilding.elevator_count) {
+        toast.error(`هذا المبنى مسجل له ${selectedBuilding.elevator_count} مصعد فقط، وتم تسجيل العدد بالكامل`);
+        return;
+      }
+
       const payload = {
         elevator_number: formData.elevator_number,
         building_id: formData.building_id,
